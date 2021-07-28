@@ -9,6 +9,7 @@ pub struct Regfile {
 impl Regfile {
     pub fn new(pc: u32, sp: u32) -> Regfile {
         let mut x: [u32; 32] = [0; 32];
+        x[0] = 0;
         x[2] = sp;
         Regfile{
             x, pc
@@ -130,7 +131,9 @@ pub fn decode(instr: u32) -> Operand {
     Operand::new(&name, opcode, rd, funct3, rs1, rs2, funct7, imm)
 }
 
-pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
+pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -> i64 {
+    //// set x0 to 0
+    regfile.x[0] = 0;
     match operand.name.as_str() {
         "LUI" => execute_lui(regfile, operand),
         "AUIPC" => execute_auipc(regfile, operand),
@@ -143,26 +146,30 @@ pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
         "OP" => execute_op(regfile, operand),
         "MISC-MEM" => {
             //// skip FENCE operation
+            0
         },
         "SYSTEM" => execute_system(regfile, dmem, operand),
         _ => panic!("operand name {} is not supported", operand.name),
     }
 }
 
-fn execute_lui(regfile: &mut Regfile, operand: &Operand) {
+fn execute_lui(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let rd = operand.rd as usize;
     regfile.x[rd] = operand.imm;
+    return 0;
 }
 
-fn execute_auipc(regfile: &mut Regfile, operand: &Operand) {
+fn execute_auipc(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let rd = operand.rd as usize;
-    let pc = wsub(wadd(regfile.pc, operand.imm), 4);
+    //let pc = wsub(wadd(regfile.pc, operand.imm), 4);
+    let pc = wadd(regfile.pc, operand.imm);
     regfile.pc = pc;
     //TODO: correct?
     regfile.x[rd] = pc;
+    return 0;
 }
 
-fn execute_jal(regfile: &mut Regfile, operand: &Operand) {
+fn execute_jal(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let rd = operand.rd as usize;
     let imm = sign_extend(operand.imm, 20);
 
@@ -171,9 +178,10 @@ fn execute_jal(regfile: &mut Regfile, operand: &Operand) {
     }
 
     regfile.add_pc(wsub(imm, 4));
+    return 0;
 }
 
-fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
+fn execute_jalr(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let (rd, rs1) = (operand.rd as usize, operand.rs1 as usize);
     let imm = sign_extend(operand.imm, 12);
     let addr = wadd(regfile.x[rs1], imm);
@@ -185,9 +193,10 @@ fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
 
     // 4 will be added later.
     regfile.pc = wsub(addr, 4);
+    return 0;
 }
 
-fn execute_branch(regfile: &mut Regfile, operand: &Operand) {
+fn execute_branch(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let (rs1, rs2) = (operand.rs1 as usize, operand.rs2 as usize);
     let imm = sign_extend(operand.imm, 12);
     let branch: bool;
@@ -204,9 +213,11 @@ fn execute_branch(regfile: &mut Regfile, operand: &Operand) {
     if branch {
         regfile.add_pc(wsub(imm, 4));
     }
+
+    return 0;
 }
 
-fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
+fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -> i64 {
     let (rd, rs1) = (operand.rd as usize, operand.rs1 as usize);
     let imm = sign_extend(operand.imm, 12);
     let addr = wadd(regfile.x[rs1], imm) as usize;
@@ -235,9 +246,10 @@ fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
         },
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
+    return 0;
 }
 
-fn execute_store(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
+fn execute_store(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -> i64 {
     let (rs1, rs2) = (operand.rs1 as usize, operand.rs2 as usize);
     let imm = sign_extend(operand.imm, 12);
     let addr = wadd(regfile.x[rs1], imm) as usize;
@@ -262,9 +274,10 @@ fn execute_store(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
         },
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
+    return 0;
 }
 
-fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
+fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let (rd, rs1, shamt) = (operand.rd as usize, operand.rs1 as usize, operand.rs2 as usize);
     let imm = sign_extend(operand.imm, 12);
     match operand.funct3 {
@@ -284,9 +297,10 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
         },
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
+    return 0;
 }
 
-fn execute_op(regfile: &mut Regfile, operand: &Operand) {
+fn execute_op(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let (rd, rs1, rs2) = (operand.rd as usize, operand.rs1 as usize, operand.rs2 as usize);
     match (operand.funct7, operand.funct3) {
         (0b0000000, 0b000) => regfile.x[rd] = wadd(regfile.x[rs1], regfile.x[rs2]),  // ADD
@@ -301,8 +315,18 @@ fn execute_op(regfile: &mut Regfile, operand: &Operand) {
         (0b0000000, 0b111) => regfile.x[rd] = regfile.x[rs1] & regfile.x[rs2],  // AND
         _ => panic!("(funct7, funct3) ({}, {}) is not supported.", operand.funct7, operand.funct3),
     }
+    return 0;
 }
 
-fn execute_system(_regfile: &mut Regfile, _dmem: &mut Vec<u8>, _operand: &Operand) {
-    ////TODO: implement
+fn execute_system(regfile: &mut Regfile, _dmem: &mut Vec<u8>, operand: &Operand) -> i64 {
+    match (operand.funct7, operand.funct3) {
+        (0b0000000, 0b000) => { // ECALL
+            println!("a0 : {:08X}", regfile.x[10]); 
+            -1
+        },
+        _ => {
+            0
+        },
+        //_ => panic!("(funct7, funct3) ({}, {}) is not supported.", operand.funct7, operand.funct3),
+    }
 }

@@ -18,16 +18,20 @@ fn main() {
     let imem = fs::read(filename).expect("Unable to read file");
     let mut dmem: Vec<u8> = vec![0; MEMSIZE];
 
-    let mut regfile = Regfile::new(52, 1024);
+    //let mut regfile = Regfile::new(52, 4096);
+    let mut regfile = Regfile::new(0x1000, 4096);
 
     while regfile.pc+3 < imem.len() as u32 {
-        println!("PC: {}", regfile.pc);
+        eprintln!("PC: {:x}", regfile.pc);
         let instr = regfile.get_next_instr(&imem);
         //println!("{:08X}", instr);
         let operand = decode(instr);
-        println!("{:?}", operand);
-        execute(&mut regfile, &mut dmem, &operand);
-        println!("{:?}", regfile);
+        eprintln!("{:?}", operand);
+        let status = execute(&mut regfile, &mut dmem, &operand);
+        if status == -1 {
+            break;
+        }
+        //println!("{:?}", regfile);
         regfile.add_pc(4);
     }
 }
