@@ -20,9 +20,8 @@ impl Regfile {
         ((imem[pc+3] as u32) << 24) | ((imem[pc+2] as u32) << 16) | ((imem[pc+1] as u32) << 8) | (imem[pc] as u32)
     }
 
-    pub fn inc_pc(&mut self) {
-        let pc = (self.pc as i32) + 4;
-        self.pc = pc as u32;
+    pub fn add_pc(&mut self, val: u32) {
+        self.pc = (Wrapping(self.pc) + Wrapping(val)).0;
     }
 
     pub fn set_pc(&mut self, pc: u32) {
@@ -69,17 +68,29 @@ fn sign_extend(val: u32, nbit: u32) -> u32 {
     }
 }
 
+//let instr = format!("{:0b}", instr);
+//let opcode = test(&instr, 0, 7);
+//fn test(s: &String, pos: usize, len: usize) -> &str {
+//    return &s[(32-pos-len)..(32-pos)];
+//}
+
+// TODO: separate by instr type
 pub fn decode(instr: u32) -> Operand {
-    let opcode: u32 = instr & 0b1111111;
+    let opcode = instr & 0b1111111;
     match opcode {
         0b0110111 => Operand::new("LUI", opcode, 0, 0, 0, 0, 0, retrieve(instr, 12, 20)),
         //TODO: implement
         0b0010111 => Operand::new("AUIPC", opcode, 0, 0, 0, 0, 0, 0),
         //TODO
-        0b1101111 => Operand::new("JAL", opcode, 0, 0, 0, 0, 0, 0),
+        0b1101111 => {
+            let imm = (retrieve(instr, 31, 1) << 20) | (retrieve(instr, 12, 8) << 12) | (retrieve(instr, 20, 1) << 11) | (retrieve(instr, 21, 10) << 1);
+            Operand::new("JAL", opcode, retrieve(instr, 7, 5), 0, 0, 0, 0, imm)
+        },
         0b1100111 => Operand::new("JALR", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), 0, 0, retrieve(instr, 20, 12)),
-        //TODO
-        0b1100011 => Operand::new("BRANCH", opcode, 0, 0, 0, 0, 0, 0),
+        0b1100011 => {
+            let imm = (retrieve(instr, 31, 1) << 12) | (retrieve(instr, 7, 1) << 11) | (retrieve(instr, 25, 6) << 5) | (retrieve(instr, 8, 4) << 1);
+            Operand::new("BRANCH", opcode, 0, retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), 0, imm)
+        },
         0b0000011 => Operand::new("LOAD", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), 0, 0, retrieve(instr, 20, 12)),
         0b0100011 => Operand::new("STORE", opcode, 0, retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), 0, (retrieve(instr, 25, 7) << 5 ) | retrieve(instr, 7, 5)),
         0b0010011 => Operand::new("OP-IMM", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), retrieve(instr, 25, 7), retrieve(instr, 20, 12)),
@@ -96,13 +107,26 @@ pub fn decode(instr: u32) -> Operand {
 
 pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
     match operand.name.as_str() {
+        "JAL" => execute_jal(regfile, operand),
         "JALR" => execute_jalr(regfile, operand),
+        "BRANCH" => execute_branch(regfile, operand),
         "LOAD" => execute_load(regfile, dmem, operand),
         "STORE" => execute_store(regfile, dmem, operand),
         "OP-IMM" => execute_op_imm(regfile, operand),
         "OP" => execute_op(regfile, operand),
         _ => panic!("operand name {} is not supported", operand.name),
     }
+}
+
+fn execute_jal(regfile: &mut Regfile, operand: &Operand) {
+    let rd = operand.rd as usize;
+    let imm = sign_extend(operand.imm, 20);
+
+    if rd != 0 {
+        regfile.x[rd] = regfile.get_pc() + 4;
+    }
+
+    regfile.add_pc((Wrapping(imm) - Wrapping(4)).0);
 }
 
 fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
@@ -118,6 +142,25 @@ fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
     // 4 will be added later.
     regfile.set_pc((Wrapping(addr) - Wrapping(4)).0);
     //regfile.set_pc((addr - 4) as u32);
+}
+
+fn execute_branch(regfile: &mut Regfile, operand: &Operand) {
+    let (rs1, rs2) = (operand.rs1 as usize, operand.rs2 as usize);
+    let imm = sign_extend(operand.imm, 12);
+    let branch: bool;
+    match operand.funct3 {
+        0b000 => branch = regfile.x[rs1] == regfile.x[rs2], // BEQ
+        0b001 => branch = regfile.x[rs1] != regfile.x[rs2], // BEQ
+        0b100 => branch = (regfile.x[rs1] as i32) < (regfile.x[rs2] as i32), // BLT
+        0b101 => branch = (regfile.x[rs1] as i32) >= (regfile.x[rs2] as i32), // BGE
+        0b110 => branch = regfile.x[rs1] < regfile.x[rs2], // BLTU
+        0b111 => branch = regfile.x[rs1] >= regfile.x[rs2], // BGEU
+        _ => panic!("funct3 {} is not supported.", operand.funct3),
+    }
+
+    if branch {
+        regfile.add_pc((Wrapping(imm) - Wrapping(4)).0);
+    }
 }
 
 fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {

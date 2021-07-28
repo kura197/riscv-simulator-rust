@@ -23,11 +23,11 @@ fn main() {
     while regfile.get_pc()+3 < imem.len() as u32 {
         println!("PC: {}", regfile.get_pc());
         let instr = regfile.get_next_instr(&imem);
-        //println!("{:08x}", instr);
+        //println!("{:08X}", instr);
         let operand = decode(instr);
         println!("{:?}", operand);
         execute(&mut regfile, &mut dmem, &operand);
         println!("{:?}", regfile);
-        regfile.inc_pc();
+        regfile.add_pc(4);
     }
 }
