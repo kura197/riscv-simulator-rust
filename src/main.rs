@@ -18,7 +18,7 @@ fn main() {
     let imem = fs::read(filename).expect("Unable to read file");
     let mut dmem: Vec<u8> = vec![0; MEMSIZE];
 
-    let mut regfile = Regfile::new(52);
+    let mut regfile = Regfile::new(52, 1024);
 
     while regfile.get_pc()+3 < imem.len() as u32 {
         println!("PC: {}", regfile.get_pc());

@@ -7,8 +7,9 @@ pub struct Regfile {
 }
 
 impl Regfile {
-    pub fn new(pc: u32) -> Regfile {
-        let x: [u32; 32] = [0; 32];
+    pub fn new(pc: u32, sp: u32) -> Regfile {
+        let mut x: [u32; 32] = [0; 32];
+        x[2] = sp;
         Regfile{
             x, pc
         }
@@ -61,8 +62,8 @@ fn retrieve(x: u32, shift: u32, nbit: u32) -> u32 {
 }
 
 fn sign_extend(val: u32, nbit: u32) -> u32 {
-    if (val >> nbit) & 1 == 1 {
-        0xFFFFFFFF & !((1 << nbit) - 1) & val
+    if (val >> (nbit-1)) & 1 == 1 {
+        (0xFFFFFFFF & !((1 << nbit) - 1)) | val
     } else {
         val
     }
@@ -81,7 +82,7 @@ pub fn decode(instr: u32) -> Operand {
         0b1100011 => Operand::new("BRANCH", opcode, 0, 0, 0, 0, 0, 0),
         0b0000011 => Operand::new("LOAD", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), 0, 0, retrieve(instr, 20, 12)),
         0b0100011 => Operand::new("STORE", opcode, 0, retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), 0, (retrieve(instr, 25, 7) << 5 ) | retrieve(instr, 7, 5)),
-        0b0010011 => Operand::new("OP-IMM", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), 0, 0, retrieve(instr, 20, 12)),
+        0b0010011 => Operand::new("OP-IMM", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), retrieve(instr, 25, 7), retrieve(instr, 20, 12)),
         0b0110011 => Operand::new("OP", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), retrieve(instr, 25, 7), retrieve(instr, 20, 12)),
         //TODO
         0b0001111 => Operand::new("MISC-MEM", opcode, 0, 0, 0, 0, 0, 0),
@@ -107,7 +108,7 @@ pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
 fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
     let (rd, rs1) = (operand.rd as usize, operand.rs1 as usize);
     let imm = sign_extend(operand.imm, 12);
-    let addr = (regfile.x[rs1] + imm) as u32;
+    let addr = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0;
     let addr = addr & !0b1;
 
     if rd != 0 {
@@ -122,7 +123,7 @@ fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
 fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
     let (rd, rs1) = (operand.rd as usize, operand.rs1 as usize);
     let imm = sign_extend(operand.imm, 12);
-    let addr = (regfile.x[rs1] + imm) as usize;
+    let addr = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0 as usize;
     match operand.funct3 {
         //// TODO: check endian
         0b000 => regfile.x[rd] = sign_extend(dmem[addr] as u32, 8), // LB
@@ -153,7 +154,7 @@ fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
 fn execute_store(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
     let (rs1, rs2) = (operand.rs1 as usize, operand.rs2 as usize);
     let imm = sign_extend(operand.imm, 12);
-    let addr = (regfile.x[rs1] + imm) as usize;
+    let addr = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0 as usize;
     match operand.funct3 {
         //// TODO: check endian
         0b000 => dmem[addr] = (regfile.x[rs2] & 0xFF) as u8,    // SB
@@ -190,8 +191,8 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
         0b001 => regfile.x[rd] = regfile.x[rs1] << shamt, // SLLI
         0b101 => {
             match operand.funct7 {
-                0b0000000 => regfile.x[rd] = regfile.x[rs1] << shamt, // SRLI
-                0b0100000 => regfile.x[rd] = ((regfile.x[rs1] as i32) << shamt) as u32, // SRLI
+                0b0000000 => regfile.x[rd] = regfile.x[rs1] >> shamt, // SRLI
+                0b0100000 => regfile.x[rd] = ((regfile.x[rs1] as i32) >> shamt) as u32, // SRLI
                 _ => panic!("funct7 {} is not supported.", operand.funct7),
             }
         },
