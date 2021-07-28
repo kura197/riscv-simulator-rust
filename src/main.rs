@@ -1,33 +1,9 @@
+extern crate riscv_simulator;
+
 use std::fs;
 use std::env;
 
-fn get_next_instr(imem: &Vec<u8>, pc: u32) -> u32 {
-    let pc = pc as usize;
-    ((imem[pc+3] as u32) << 24) | ((imem[pc+2] as u32) << 16) | ((imem[pc+1] as u32) << 8) | (imem[pc] as u32)
-}
-
-struct Regfile {
-    x: [u32; 32],
-    pc: u32
-}
-
-impl Regfile {
-    fn new() -> Regfile {
-        let x: [u32; 32] = [0; 32];
-        let pc: u32 = 0;
-        Regfile{
-            x, pc
-        }
-    }
-
-    fn inc_pc(&mut self) {
-        self.pc += 4;
-    }
-}
-
-fn decode(regfile: &mut Regfile, instr: u32) {
-    regfile.x[0] = instr;
-}
+use riscv_simulator::*;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -39,11 +15,14 @@ fn main() {
     let filename = &args[1];
     let imem = fs::read(filename).expect("Unable to read file");
 
-    let mut regfile = Regfile::new();
-    while regfile.pc+3 < imem.len() as u32 {
-        let instr = get_next_instr(&imem, regfile.pc);
-        println!("{}", instr);
-        decode(&mut regfile, instr);
+    let mut regfile = Regfile::new(52);
+
+    while regfile.get_pc()+3 < imem.len() as u32 {
+        let instr = regfile.get_next_instr(&imem);
+        println!("{:08x}", instr);
+        let operand = decode(instr).unwrap();
+        println!("{:?}", operand);
+        //// execute(&mut regfile, &operand);
         regfile.inc_pc();
     }
 }
