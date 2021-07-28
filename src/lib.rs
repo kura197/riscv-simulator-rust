@@ -182,6 +182,19 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
     let imm = sign_extend(operand.imm, 12);
     match operand.funct3 {
         0b000 => regfile.x[rd] = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0,  // ADDI
+        0b010 => regfile.x[rd] = ((regfile.x[rs1] as i32) < (imm as i32)) as u32,  // SLTI
+        0b011 => regfile.x[rd] = (regfile.x[rs1] < imm) as u32,  // SLTIU
+        0b100 => regfile.x[rd] = regfile.x[rs1] ^ imm,  // XORI
+        0b110 => regfile.x[rd] = regfile.x[rs1] | imm,  // ORI
+        0b111 => regfile.x[rd] = regfile.x[rs1] & imm,  // ANDI
+        0b001 => regfile.x[rd] = regfile.x[rs1] << shamt, // SLLI
+        0b101 => {
+            match operand.funct7 {
+                0b0000000 => regfile.x[rd] = regfile.x[rs1] << shamt, // SRLI
+                0b0100000 => regfile.x[rd] = ((regfile.x[rs1] as i32) << shamt) as u32, // SRLI
+                _ => panic!("funct7 {} is not supported.", operand.funct7),
+            }
+        },
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
 }
