@@ -1,3 +1,4 @@
+use std::num::Wrapping;
 
 #[derive(Debug)]
 pub struct Regfile {
@@ -106,7 +107,7 @@ pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
 fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
     let (rd, rs1) = (operand.rd as usize, operand.rs1 as usize);
     let imm = sign_extend(operand.imm, 12);
-    let addr = (regfile.x[rs1] + imm) as i32;
+    let addr = (regfile.x[rs1] + imm) as u32;
     let addr = addr & !0b1;
 
     if rd != 0 {
@@ -114,8 +115,8 @@ fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
     }
 
     // 4 will be added later.
-    //regfile.set_pc(addr-4);
-    regfile.set_pc((addr - 4) as u32);
+    regfile.set_pc((Wrapping(addr) - Wrapping(4)).0);
+    //regfile.set_pc((addr - 4) as u32);
 }
 
 fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
@@ -180,7 +181,7 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
     let (rd, rs1, shamt) = (operand.rd as usize, operand.rs1 as usize, operand.rs2 as usize);
     let imm = sign_extend(operand.imm, 12);
     match operand.funct3 {
-        0b000 => regfile.x[rd] = (regfile.x[rs1] as i32 + imm as i32) as u32,  // ADDI
+        0b000 => regfile.x[rd] = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0,  // ADDI
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
 }
@@ -188,11 +189,14 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
 fn execute_op(regfile: &mut Regfile, operand: &Operand) {
     let (rd, rs1, rs2) = (operand.rd as usize, operand.rs1 as usize, operand.rs2 as usize);
     match (operand.funct7, operand.funct3) {
-        (0b0000000, 0b000) => regfile.x[rd] = (regfile.x[rs1] as i32 + regfile.x[rs2] as i32) as u32,  // ADD
-        (0b0100000, 0b000) => regfile.x[rd] = (regfile.x[rs1] as i32 - regfile.x[rs2] as i32) as u32,  // SUB
+        (0b0000000, 0b000) => regfile.x[rd] = (Wrapping(regfile.x[rs1]) + Wrapping(regfile.x[rs2])).0,  // ADD
+        (0b0100000, 0b000) => regfile.x[rd] = (Wrapping(regfile.x[rs1]) - Wrapping(regfile.x[rs2])).0,  // SUB
         (0b0000000, 0b001) => regfile.x[rd] = regfile.x[rs1] << (regfile.x[rs2] & 0b11111),  // SLL
+        (0b0000000, 0b010) => regfile.x[rd] = ((regfile.x[rs1] as i32) < (regfile.x[rs2] as i32)) as u32,  // SLT
+        (0b0000000, 0b011) => regfile.x[rd] = (regfile.x[rs1] < regfile.x[rs2]) as u32,  // SLTU
         (0b0000000, 0b100) => regfile.x[rd] = regfile.x[rs1] ^ regfile.x[rs2],  // XOR
-        (0b0000000, 0b101) => regfile.x[rd] = regfile.x[rs1] >> (regfile.x[rs2] & 0b11111),  // SLL
+        (0b0000000, 0b101) => regfile.x[rd] = regfile.x[rs1] >> (regfile.x[rs2] & 0b11111),  // SRL
+        (0b0100000, 0b101) => regfile.x[rd] = ((regfile.x[rs1] as i32) >> (regfile.x[rs2] & 0b11111)) as u32,  // SRA
         (0b0000000, 0b110) => regfile.x[rd] = regfile.x[rs1] | regfile.x[rs2],  // OR
         (0b0000000, 0b111) => regfile.x[rd] = regfile.x[rs1] & regfile.x[rs2],  // AND
         _ => panic!("(funct7, funct3) ({}, {}) is not supported.", operand.funct7, operand.funct3),
