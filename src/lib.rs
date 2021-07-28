@@ -2,8 +2,8 @@ use std::num::Wrapping;
 
 #[derive(Debug)]
 pub struct Regfile {
-    x: [u32; 32],
-    pc: u32
+    pub x: [u32; 32],
+    pub pc: u32
 }
 
 impl Regfile {
@@ -21,15 +21,7 @@ impl Regfile {
     }
 
     pub fn add_pc(&mut self, val: u32) {
-        self.pc = (Wrapping(self.pc) + Wrapping(val)).0;
-    }
-
-    pub fn set_pc(&mut self, pc: u32) {
-        self.pc = pc;
-    }
-
-    pub fn get_pc(&mut self) -> u32{
-        self.pc
+        self.pc = wadd(self.pc, val);
     }
 }
 
@@ -68,6 +60,14 @@ fn sign_extend(val: u32, nbit: u32) -> u32 {
     }
 }
 
+fn wadd(a: u32, b: u32) -> u32 {
+    (Wrapping(a) + Wrapping(b)).0
+}
+
+fn wsub(a: u32, b: u32) -> u32 {
+    (Wrapping(a) - Wrapping(b)).0
+}
+
 pub fn decode(instr: u32) -> Operand {
     let opcode = retrieve(instr, 0, 7);
     let rd = retrieve(instr, 7, 5);
@@ -80,11 +80,11 @@ pub fn decode(instr: u32) -> Operand {
     match opcode {
         0b0110111 => {
             name = "LUI".to_string();
-            imm = retrieve(instr, 12, 20);
+            imm = retrieve(instr, 12, 20) << 12;
         },
         0b0010111 => {
             name = "AUIPC".to_string();
-            imm = retrieve(instr, 12, 20);
+            imm = retrieve(instr, 12, 20) << 12;
         },
         0b1101111 => {
             name = "JAL".to_string();
@@ -132,6 +132,8 @@ pub fn decode(instr: u32) -> Operand {
 
 pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
     match operand.name.as_str() {
+        "LUI" => execute_lui(regfile, operand),
+        "AUIPC" => execute_auipc(regfile, operand),
         "JAL" => execute_jal(regfile, operand),
         "JALR" => execute_jalr(regfile, operand),
         "BRANCH" => execute_branch(regfile, operand),
@@ -139,8 +141,25 @@ pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
         "STORE" => execute_store(regfile, dmem, operand),
         "OP-IMM" => execute_op_imm(regfile, operand),
         "OP" => execute_op(regfile, operand),
+        "MISC-MEM" => {
+            //// skip FENCE operation
+        },
+        "SYSTEM" => execute_system(regfile, dmem, operand),
         _ => panic!("operand name {} is not supported", operand.name),
     }
+}
+
+fn execute_lui(regfile: &mut Regfile, operand: &Operand) {
+    let rd = operand.rd as usize;
+    regfile.x[rd] = operand.imm;
+}
+
+fn execute_auipc(regfile: &mut Regfile, operand: &Operand) {
+    let rd = operand.rd as usize;
+    let pc = wsub(wadd(regfile.pc, operand.imm), 4);
+    regfile.pc = pc;
+    //TODO: correct?
+    regfile.x[rd] = pc;
 }
 
 fn execute_jal(regfile: &mut Regfile, operand: &Operand) {
@@ -148,24 +167,24 @@ fn execute_jal(regfile: &mut Regfile, operand: &Operand) {
     let imm = sign_extend(operand.imm, 20);
 
     if rd != 0 {
-        regfile.x[rd] = regfile.get_pc() + 4;
+        regfile.x[rd] = wadd(regfile.pc, 4);
     }
 
-    regfile.add_pc((Wrapping(imm) - Wrapping(4)).0);
+    regfile.add_pc(wsub(imm, 4));
 }
 
 fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
     let (rd, rs1) = (operand.rd as usize, operand.rs1 as usize);
     let imm = sign_extend(operand.imm, 12);
-    let addr = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0;
+    let addr = wadd(regfile.x[rs1], imm);
     let addr = addr & !0b1;
 
     if rd != 0 {
-        regfile.x[rd] = regfile.get_pc() + 4;
+        regfile.x[rd] = regfile.pc + 4;
     }
 
     // 4 will be added later.
-    regfile.set_pc((Wrapping(addr) - Wrapping(4)).0);
+    regfile.pc = wsub(addr, 4);
 }
 
 fn execute_branch(regfile: &mut Regfile, operand: &Operand) {
@@ -183,14 +202,14 @@ fn execute_branch(regfile: &mut Regfile, operand: &Operand) {
     }
 
     if branch {
-        regfile.add_pc((Wrapping(imm) - Wrapping(4)).0);
+        regfile.add_pc(wsub(imm, 4));
     }
 }
 
 fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
     let (rd, rs1) = (operand.rd as usize, operand.rs1 as usize);
     let imm = sign_extend(operand.imm, 12);
-    let addr = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0 as usize;
+    let addr = wadd(regfile.x[rs1], imm) as usize;
     match operand.funct3 {
         //// TODO: check endian
         0b000 => regfile.x[rd] = sign_extend(dmem[addr] as u32, 8), // LB
@@ -221,7 +240,7 @@ fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
 fn execute_store(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
     let (rs1, rs2) = (operand.rs1 as usize, operand.rs2 as usize);
     let imm = sign_extend(operand.imm, 12);
-    let addr = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0 as usize;
+    let addr = wadd(regfile.x[rs1], imm) as usize;
     match operand.funct3 {
         //// TODO: check endian
         0b000 => dmem[addr] = (regfile.x[rs2] & 0xFF) as u8,    // SB
@@ -249,7 +268,7 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
     let (rd, rs1, shamt) = (operand.rd as usize, operand.rs1 as usize, operand.rs2 as usize);
     let imm = sign_extend(operand.imm, 12);
     match operand.funct3 {
-        0b000 => regfile.x[rd] = (Wrapping(regfile.x[rs1]) + Wrapping(imm)).0,  // ADDI
+        0b000 => regfile.x[rd] = wadd(regfile.x[rs1], imm),  // ADDI
         0b010 => regfile.x[rd] = ((regfile.x[rs1] as i32) < (imm as i32)) as u32,  // SLTI
         0b011 => regfile.x[rd] = (regfile.x[rs1] < imm) as u32,  // SLTIU
         0b100 => regfile.x[rd] = regfile.x[rs1] ^ imm,  // XORI
@@ -270,8 +289,8 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) {
 fn execute_op(regfile: &mut Regfile, operand: &Operand) {
     let (rd, rs1, rs2) = (operand.rd as usize, operand.rs1 as usize, operand.rs2 as usize);
     match (operand.funct7, operand.funct3) {
-        (0b0000000, 0b000) => regfile.x[rd] = (Wrapping(regfile.x[rs1]) + Wrapping(regfile.x[rs2])).0,  // ADD
-        (0b0100000, 0b000) => regfile.x[rd] = (Wrapping(regfile.x[rs1]) - Wrapping(regfile.x[rs2])).0,  // SUB
+        (0b0000000, 0b000) => regfile.x[rd] = wadd(regfile.x[rs1], regfile.x[rs2]),  // ADD
+        (0b0100000, 0b000) => regfile.x[rd] = wsub(regfile.x[rs1], regfile.x[rs2]),  // SUB
         (0b0000000, 0b001) => regfile.x[rd] = regfile.x[rs1] << (regfile.x[rs2] & 0b11111),  // SLL
         (0b0000000, 0b010) => regfile.x[rd] = ((regfile.x[rs1] as i32) < (regfile.x[rs2] as i32)) as u32,  // SLT
         (0b0000000, 0b011) => regfile.x[rd] = (regfile.x[rs1] < regfile.x[rs2]) as u32,  // SLTU
@@ -282,4 +301,8 @@ fn execute_op(regfile: &mut Regfile, operand: &Operand) {
         (0b0000000, 0b111) => regfile.x[rd] = regfile.x[rs1] & regfile.x[rs2],  // AND
         _ => panic!("(funct7, funct3) ({}, {}) is not supported.", operand.funct7, operand.funct3),
     }
+}
+
+fn execute_system(_regfile: &mut Regfile, _dmem: &mut Vec<u8>, _operand: &Operand) {
+    ////TODO: implement
 }

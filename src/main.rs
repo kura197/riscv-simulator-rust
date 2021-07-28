@@ -20,8 +20,8 @@ fn main() {
 
     let mut regfile = Regfile::new(52, 1024);
 
-    while regfile.get_pc()+3 < imem.len() as u32 {
-        println!("PC: {}", regfile.get_pc());
+    while regfile.pc+3 < imem.len() as u32 {
+        println!("PC: {}", regfile.pc);
         let instr = regfile.get_next_instr(&imem);
         //println!("{:08X}", instr);
         let operand = decode(instr);
