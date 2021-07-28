@@ -68,41 +68,66 @@ fn sign_extend(val: u32, nbit: u32) -> u32 {
     }
 }
 
-//let instr = format!("{:0b}", instr);
-//let opcode = test(&instr, 0, 7);
-//fn test(s: &String, pos: usize, len: usize) -> &str {
-//    return &s[(32-pos-len)..(32-pos)];
-//}
-
-// TODO: separate by instr type
 pub fn decode(instr: u32) -> Operand {
-    let opcode = instr & 0b1111111;
+    let opcode = retrieve(instr, 0, 7);
+    let rd = retrieve(instr, 7, 5);
+    let funct3 = retrieve(instr, 12, 3);
+    let rs1 = retrieve(instr, 15, 5);
+    let rs2 = retrieve(instr, 20, 5);
+    let funct7 = retrieve(instr, 25, 7);
+    let name: String;
+    let imm: u32;
     match opcode {
-        0b0110111 => Operand::new("LUI", opcode, 0, 0, 0, 0, 0, retrieve(instr, 12, 20)),
-        //TODO: implement
-        0b0010111 => Operand::new("AUIPC", opcode, 0, 0, 0, 0, 0, 0),
-        //TODO
+        0b0110111 => {
+            name = "LUI".to_string();
+            imm = retrieve(instr, 12, 20);
+        },
+        0b0010111 => {
+            name = "AUIPC".to_string();
+            imm = retrieve(instr, 12, 20);
+        },
         0b1101111 => {
-            let imm = (retrieve(instr, 31, 1) << 20) | (retrieve(instr, 12, 8) << 12) | (retrieve(instr, 20, 1) << 11) | (retrieve(instr, 21, 10) << 1);
-            Operand::new("JAL", opcode, retrieve(instr, 7, 5), 0, 0, 0, 0, imm)
+            name = "JAL".to_string();
+            imm = (retrieve(instr, 31, 1) << 20) | (retrieve(instr, 12, 8) << 12) | (retrieve(instr, 20, 1) << 11) | (retrieve(instr, 21, 10) << 1);
         },
-        0b1100111 => Operand::new("JALR", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), 0, 0, retrieve(instr, 20, 12)),
+        0b1100111 => {
+            name = "JALR".to_string();
+            imm = retrieve(instr, 20, 12);
+        },
         0b1100011 => {
-            let imm = (retrieve(instr, 31, 1) << 12) | (retrieve(instr, 7, 1) << 11) | (retrieve(instr, 25, 6) << 5) | (retrieve(instr, 8, 4) << 1);
-            Operand::new("BRANCH", opcode, 0, retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), 0, imm)
+            name = "BRANCH".to_string();
+            imm = (retrieve(instr, 31, 1) << 12) | (retrieve(instr, 7, 1) << 11) | (retrieve(instr, 25, 6) << 5) | (retrieve(instr, 8, 4) << 1);
         },
-        0b0000011 => Operand::new("LOAD", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), 0, 0, retrieve(instr, 20, 12)),
-        0b0100011 => Operand::new("STORE", opcode, 0, retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), 0, (retrieve(instr, 25, 7) << 5 ) | retrieve(instr, 7, 5)),
-        0b0010011 => Operand::new("OP-IMM", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), retrieve(instr, 25, 7), retrieve(instr, 20, 12)),
-        0b0110011 => Operand::new("OP", opcode, retrieve(instr, 7, 5), retrieve(instr, 12, 3), retrieve(instr, 15, 5), retrieve(instr, 20, 5), retrieve(instr, 25, 7), retrieve(instr, 20, 12)),
-        //TODO
-        0b0001111 => Operand::new("MISC-MEM", opcode, 0, 0, 0, 0, 0, 0),
-        //TODO
-        0b1110011 => Operand::new("SYSTEM", opcode, 0, 0, 0, 0, 0, 0),
+        0b0000011 => {
+            name = "LOAD".to_string();
+            imm = retrieve(instr, 20, 12);
+        },
+        0b0100011 => {
+            name = "STORE".to_string();
+            imm = (retrieve(instr, 25, 7) << 5 ) | retrieve(instr, 7, 5);
+        },
+        0b0010011 => {
+            name = "OP-IMM".to_string();
+            imm = retrieve(instr, 20, 12);
+        }
+        0b0110011 => {
+            name = "OP".to_string();
+            imm = retrieve(instr, 20, 12);
+        }
+        0b0001111 => {
+            name = "MISC-MEM".to_string();
+            imm = 0;
+        }
+        0b1110011 => {
+            name = "SYSTEM".to_string();
+            imm = retrieve(instr, 15, 5);
+        }
         _ => {
             panic!("opcode {} is not supported.", opcode);
         },
     }
+
+    Operand::new(&name, opcode, rd, funct3, rs1, rs2, funct7, imm)
 }
 
 pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) {
@@ -141,7 +166,6 @@ fn execute_jalr(regfile: &mut Regfile, operand: &Operand) {
 
     // 4 will be added later.
     regfile.set_pc((Wrapping(addr) - Wrapping(4)).0);
-    //regfile.set_pc((addr - 4) as u32);
 }
 
 fn execute_branch(regfile: &mut Regfile, operand: &Operand) {
