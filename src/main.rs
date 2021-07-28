@@ -24,7 +24,7 @@ fn main() {
         println!("PC: {}", regfile.get_pc());
         let instr = regfile.get_next_instr(&imem);
         //println!("{:08x}", instr);
-        let operand = decode(instr).unwrap();
+        let operand = decode(instr);
         println!("{:?}", operand);
         execute(&mut regfile, &mut dmem, &operand);
         println!("{:?}", regfile);
