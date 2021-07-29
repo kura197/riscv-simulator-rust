@@ -1,31 +1,43 @@
 use std::num::Wrapping;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct Regfile {
     pub x: [u32; 32],
     pub pc: u32,
-    pc_base: u32,
 }
 
 impl Regfile {
-    pub fn new(pc_base: u32, sp: u32) -> Regfile {
+    pub fn new(pc: u32, sp: u32) -> Regfile {
         let mut x: [u32; 32] = [0; 32];
         x[0] = 0;
         x[2] = sp;
         Regfile{
             x: x, 
-            pc: 0,
-            pc_base: pc_base
+            pc: pc,
         }
     }
 
     pub fn get_next_instr(&self, imem: &Vec<u8>) -> u32 {
-        let pc = (self.pc_base + self.pc) as usize;
+        let pc = self.pc as usize;
         ((imem[pc+3] as u32) << 24) | ((imem[pc+2] as u32) << 16) | ((imem[pc+1] as u32) << 8) | (imem[pc] as u32)
     }
 
     pub fn add_pc(&mut self, val: u32) {
         self.pc = wadd(self.pc, val);
+    }
+}
+
+impl fmt::Display for Regfile {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "pc: {:08X}, x0: {:08X}, ra: {:08X}, sp: {:08X},
+                 \rgp: {:08X}, tp: {:08X}, t0: {:08X}, s0: {:08X}, 
+                 \ra0: {:08X}, a1: {:08X}, a2: {:08X}, a3: {:08X}, 
+                 \ra4: {:08X}, a5: {:08X}, a6: {:08X}, a7: {:08X}\n", 
+                    self.pc, self.x[0], self.x[1], self.x[2], 
+                    self.x[3], self.x[4], self.x[5], self.x[8], 
+                    self.x[10], self.x[11], self.x[12], self.x[13], 
+                    self.x[14], self.x[15], self.x[16], self.x[17])
     }
 }
 
@@ -149,6 +161,7 @@ pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -> 
         "OP" => execute_op(regfile, operand),
         "MISC-MEM" => {
             //// skip FENCE operation
+            regfile.add_pc(4);
             0
         },
         "SYSTEM" => execute_system(regfile, dmem, operand),
@@ -159,6 +172,7 @@ pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -> 
 fn execute_lui(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let rd = operand.rd as usize;
     regfile.x[rd] = operand.imm;
+    regfile.add_pc(4);
     return 0;
 }
 
@@ -169,6 +183,7 @@ fn execute_auipc(regfile: &mut Regfile, operand: &Operand) -> i64 {
     //regfile.pc = pc;
     //TODO: correct?
     regfile.x[rd] = pc;
+    regfile.add_pc(4);
     return 0;
 }
 
@@ -180,7 +195,7 @@ fn execute_jal(regfile: &mut Regfile, operand: &Operand) -> i64 {
         regfile.x[rd] = wadd(regfile.pc, 4);
     }
 
-    regfile.add_pc(wsub(imm, 4));
+    regfile.add_pc(imm);
     return 0;
 }
 
@@ -194,8 +209,7 @@ fn execute_jalr(regfile: &mut Regfile, operand: &Operand) -> i64 {
         regfile.x[rd] = regfile.pc + 4;
     }
 
-    // 4 will be added later.
-    regfile.pc = wsub(addr, 4);
+    regfile.pc = addr;
     return 0;
 }
 
@@ -214,7 +228,9 @@ fn execute_branch(regfile: &mut Regfile, operand: &Operand) -> i64 {
     }
 
     if branch {
-        regfile.add_pc(wsub(imm, 4));
+        regfile.add_pc(imm);
+    } else {
+        regfile.add_pc(4);
     }
 
     return 0;
@@ -249,6 +265,7 @@ fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) ->
         },
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
+    regfile.add_pc(4);
     return 0;
 }
 
@@ -277,6 +294,7 @@ fn execute_store(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -
         },
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
+    regfile.add_pc(4);
     return 0;
 }
 
@@ -300,6 +318,7 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) -> i64 {
         },
         _ => panic!("funct3 {} is not supported.", operand.funct3),
     }
+    regfile.add_pc(4);
     return 0;
 }
 
@@ -318,10 +337,12 @@ fn execute_op(regfile: &mut Regfile, operand: &Operand) -> i64 {
         (0b0000000, 0b111) => regfile.x[rd] = regfile.x[rs1] & regfile.x[rs2],  // AND
         _ => panic!("(funct7, funct3) ({}, {}) is not supported.", operand.funct7, operand.funct3),
     }
+    regfile.add_pc(4);
     return 0;
 }
 
 fn execute_system(regfile: &mut Regfile, _dmem: &mut Vec<u8>, operand: &Operand) -> i64 {
+    regfile.add_pc(4);
     match (operand.funct7, operand.funct3) {
         (0b0000000, 0b000) => { // ECALL
             println!("a0 : {:08X}", regfile.x[10]); 
