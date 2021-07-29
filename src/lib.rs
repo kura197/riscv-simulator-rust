@@ -42,8 +42,23 @@ impl fmt::Display for Regfile {
 }
 
 #[derive(Debug)]
+enum InstrKind {
+    LUI,
+    AUIPC,
+    JAL,
+    JALR,
+    BRANCH,
+    LOAD,
+    STORE,
+    OPIMM,
+    OP,
+    MISCMEM,
+    SYSTEM,
+}
+
+#[derive(Debug)]
 pub struct Operand {
-    name: String,
+    kind: InstrKind,
     opcode: u32,
     rd: u32,
     funct3: u32,
@@ -54,10 +69,9 @@ pub struct Operand {
 }
 
 impl Operand {
-    fn new(name: &str, opcode: u32, rd: u32, funct3: u32, rs1: u32, rs2: u32, funct7: u32, imm: u32) -> Operand {
+    fn new(kind: InstrKind, opcode: u32, rd: u32, funct3: u32, rs1: u32, rs2: u32, funct7: u32, imm: u32) -> Operand {
         return Operand{
-            name: name.to_string(),
-            opcode, rd, funct3, rs1, rs2, funct7, imm
+            kind, opcode, rd, funct3, rs1, rs2, funct7, imm
         }
     }
 }
@@ -91,51 +105,51 @@ pub fn decode(instr: u32) -> Operand {
     let rs1 = retrieve(instr, 15, 5);
     let rs2 = retrieve(instr, 20, 5);
     let funct7 = retrieve(instr, 25, 7);
-    let name: String;
+    let kind: InstrKind;
     let imm: u32;
     match opcode {
         0b0110111 => {
-            name = "LUI".to_string();
+            kind = InstrKind::LUI;
             imm = retrieve(instr, 12, 20) << 12;
         },
         0b0010111 => {
-            name = "AUIPC".to_string();
+            kind = InstrKind::AUIPC;
             imm = retrieve(instr, 12, 20) << 12;
         },
         0b1101111 => {
-            name = "JAL".to_string();
+            kind = InstrKind::JAL;
             imm = (retrieve(instr, 31, 1) << 20) | (retrieve(instr, 12, 8) << 12) | (retrieve(instr, 20, 1) << 11) | (retrieve(instr, 21, 10) << 1);
         },
         0b1100111 => {
-            name = "JALR".to_string();
+            kind = InstrKind::JALR;
             imm = retrieve(instr, 20, 12);
         },
         0b1100011 => {
-            name = "BRANCH".to_string();
+            kind = InstrKind::BRANCH;
             imm = (retrieve(instr, 31, 1) << 12) | (retrieve(instr, 7, 1) << 11) | (retrieve(instr, 25, 6) << 5) | (retrieve(instr, 8, 4) << 1);
         },
         0b0000011 => {
-            name = "LOAD".to_string();
+            kind = InstrKind::LOAD;
             imm = retrieve(instr, 20, 12);
         },
         0b0100011 => {
-            name = "STORE".to_string();
+            kind = InstrKind::STORE;
             imm = (retrieve(instr, 25, 7) << 5 ) | retrieve(instr, 7, 5);
         },
         0b0010011 => {
-            name = "OP-IMM".to_string();
+            kind = InstrKind::OPIMM;
             imm = retrieve(instr, 20, 12);
         }
         0b0110011 => {
-            name = "OP".to_string();
+            kind = InstrKind::OP;
             imm = retrieve(instr, 20, 12);
         }
         0b0001111 => {
-            name = "MISC-MEM".to_string();
+            kind = InstrKind::MISCMEM;
             imm = 0;
         }
         0b1110011 => {
-            name = "SYSTEM".to_string();
+            kind = InstrKind::SYSTEM;
             imm = retrieve(instr, 15, 5);
         }
         _ => {
@@ -143,29 +157,29 @@ pub fn decode(instr: u32) -> Operand {
         },
     }
 
-    Operand::new(&name, opcode, rd, funct3, rs1, rs2, funct7, imm)
+    Operand::new(kind, opcode, rd, funct3, rs1, rs2, funct7, imm)
 }
 
 pub fn execute(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -> i64 {
     //// set x0 to 0
     regfile.x[0] = 0;
-    match operand.name.as_str() {
-        "LUI" => execute_lui(regfile, operand),
-        "AUIPC" => execute_auipc(regfile, operand),
-        "JAL" => execute_jal(regfile, operand),
-        "JALR" => execute_jalr(regfile, operand),
-        "BRANCH" => execute_branch(regfile, operand),
-        "LOAD" => execute_load(regfile, dmem, operand),
-        "STORE" => execute_store(regfile, dmem, operand),
-        "OP-IMM" => execute_op_imm(regfile, operand),
-        "OP" => execute_op(regfile, operand),
-        "MISC-MEM" => {
+    match &operand.kind {
+        InstrKind::LUI => execute_lui(regfile, operand),
+        InstrKind::AUIPC => execute_auipc(regfile, operand),
+        InstrKind::JAL => execute_jal(regfile, operand),
+        InstrKind::JALR => execute_jalr(regfile, operand),
+        InstrKind::BRANCH => execute_branch(regfile, operand),
+        InstrKind::LOAD => execute_load(regfile, dmem, operand),
+        InstrKind::STORE => execute_store(regfile, dmem, operand),
+        InstrKind::OPIMM => execute_op_imm(regfile, operand),
+        InstrKind::OP => execute_op(regfile, operand),
+        InstrKind::MISCMEM => {
             //// skip FENCE operation
             regfile.add_pc(4);
             0
         },
-        "SYSTEM" => execute_system(regfile, dmem, operand),
-        _ => panic!("operand name {} is not supported", operand.name),
+        InstrKind::SYSTEM => execute_system(regfile, dmem, operand),
+        //_ => panic!("operand name {:?} is not supported", operand.kind),
     }
 }
 
@@ -178,10 +192,7 @@ fn execute_lui(regfile: &mut Regfile, operand: &Operand) -> i64 {
 
 fn execute_auipc(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let rd = operand.rd as usize;
-    //let pc = wsub(wadd(regfile.pc, operand.imm), 4);
     let pc = wadd(regfile.pc, operand.imm);
-    //regfile.pc = pc;
-    //TODO: correct?
     regfile.x[rd] = pc;
     regfile.add_pc(4);
     return 0;
@@ -241,7 +252,6 @@ fn execute_load(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) ->
     let imm = sign_extend(operand.imm, 12);
     let addr = wadd(regfile.x[rs1], imm) as usize;
     match operand.funct3 {
-        //// TODO: check endian
         0b000 => regfile.x[rd] = sign_extend(dmem[addr] as u32, 8), // LB
         0b001 => {  // LH
             if addr % 2 != 0 {
@@ -274,7 +284,6 @@ fn execute_store(regfile: &mut Regfile, dmem: &mut Vec<u8>, operand: &Operand) -
     let imm = sign_extend(operand.imm, 12);
     let addr = wadd(regfile.x[rs1], imm) as usize;
     match operand.funct3 {
-        //// TODO: check endian
         0b000 => dmem[addr] = (regfile.x[rs2] & 0xFF) as u8,    // SB
         0b001 => {  // SH
             if addr % 2 != 0 {
@@ -343,14 +352,12 @@ fn execute_op(regfile: &mut Regfile, operand: &Operand) -> i64 {
 
 fn execute_system(regfile: &mut Regfile, _dmem: &mut Vec<u8>, operand: &Operand) -> i64 {
     regfile.add_pc(4);
+    //TODO: implement other instrs
     match (operand.funct7, operand.funct3) {
         (0b0000000, 0b000) => { // ECALL
             println!("a0 : {:08X}", regfile.x[10]); 
             -1
         },
-        _ => {
-            0
-        },
-        //_ => panic!("(funct7, funct3) ({}, {}) is not supported.", operand.funct7, operand.funct3),
+        _ => 0,
     }
 }
