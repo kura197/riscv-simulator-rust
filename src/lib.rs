@@ -3,21 +3,24 @@ use std::num::Wrapping;
 #[derive(Debug)]
 pub struct Regfile {
     pub x: [u32; 32],
-    pub pc: u32
+    pub pc: u32,
+    pc_base: u32,
 }
 
 impl Regfile {
-    pub fn new(pc: u32, sp: u32) -> Regfile {
+    pub fn new(pc_base: u32, sp: u32) -> Regfile {
         let mut x: [u32; 32] = [0; 32];
         x[0] = 0;
         x[2] = sp;
         Regfile{
-            x, pc
+            x: x, 
+            pc: 0,
+            pc_base: pc_base
         }
     }
 
     pub fn get_next_instr(&self, imem: &Vec<u8>) -> u32 {
-        let pc = self.pc as usize;
+        let pc = (self.pc_base + self.pc) as usize;
         ((imem[pc+3] as u32) << 24) | ((imem[pc+2] as u32) << 16) | ((imem[pc+1] as u32) << 8) | (imem[pc] as u32)
     }
 
@@ -163,7 +166,7 @@ fn execute_auipc(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let rd = operand.rd as usize;
     //let pc = wsub(wadd(regfile.pc, operand.imm), 4);
     let pc = wadd(regfile.pc, operand.imm);
-    regfile.pc = pc;
+    //regfile.pc = pc;
     //TODO: correct?
     regfile.x[rd] = pc;
     return 0;
