@@ -230,7 +230,7 @@ fn execute_branch(regfile: &mut Regfile, operand: &Operand) -> i64 {
     let branch: bool;
     match operand.funct3 {
         0b000 => branch = regfile.x[rs1] == regfile.x[rs2], // BEQ
-        0b001 => branch = regfile.x[rs1] != regfile.x[rs2], // BEQ
+        0b001 => branch = regfile.x[rs1] != regfile.x[rs2], // BNE
         0b100 => branch = (regfile.x[rs1] as i32) < (regfile.x[rs2] as i32), // BLT
         0b101 => branch = (regfile.x[rs1] as i32) >= (regfile.x[rs2] as i32), // BGE
         0b110 => branch = regfile.x[rs1] < regfile.x[rs2], // BLTU
@@ -321,7 +321,7 @@ fn execute_op_imm(regfile: &mut Regfile, operand: &Operand) -> i64 {
         0b101 => {
             match operand.funct7 {
                 0b0000000 => regfile.x[rd] = regfile.x[rs1] >> shamt, // SRLI
-                0b0100000 => regfile.x[rd] = ((regfile.x[rs1] as i32) >> shamt) as u32, // SRLI
+                0b0100000 => regfile.x[rd] = ((regfile.x[rs1] as i32) >> shamt) as u32, // SRAI
                 _ => panic!("funct7 {} is not supported.", operand.funct7),
             }
         },
@@ -355,7 +355,7 @@ fn execute_system(regfile: &mut Regfile, _dmem: &mut Vec<u8>, operand: &Operand)
     //TODO: implement other instrs
     match (operand.funct7, operand.funct3) {
         (0b0000000, 0b000) => { // ECALL
-            println!("a0 : {:08X}", regfile.x[10]); 
+            println!("a0 : {:08X}, a7 : {:08X}", regfile.x[10], regfile.x[17]); 
             -1
         },
         _ => 0,
